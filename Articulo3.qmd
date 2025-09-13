@@ -1,0 +1,48 @@
+---
+title: "Articulo 3: Naive-Bayes"
+authors:
+  - name: Jorge Nevarez - A01645313
+  - name: Alfredo Lopez - A01638976
+  - name: Damian Luna - A01645865
+  - name: Diana Hernandez - A01639515
+format: html
+editor: visual
+---
+```{r}
+#Setup global cargando librerias y nuestra base de datos
+library(tidyverse)
+library(tidymodels)
+
+data <- read_csv("data/stories.csv")
+head(data)
+```
+
+
+✏️ Realicen un pequeño análisis de texto utilizando la base de datos que scrapearon. La actividad de Mine sobre text mining les puede dar ideas y el código necesario para realizar este análisis.
+
+```{r}
+
+```
+
+✏️ Construyan una sparse matrix que incluya la frecuencia de cada palabra en los relatos scrapeados, donde cada renglón representa un relato diferente y donde las columnas son las diferentes palabras. Esta matriz también debe contener el tipo de evento paranormal. La función unnest_tokens() les puede ayudar. Consideren eliminar las palabras comunes en inglés a través de las stop words. Todo este proceso se conoce como un count vectorizer, que significa transformar texto a vectores.
+
+```{r}
+
+```
+
+
+✏️ Dividan la matriz de datos en training y test set. Y utilicen el training set para entrenar un clasificador naïve Bayes para predecir el tipo de evento paranormal.
+
+✏️ Reporten la accuracy, precision, recall, F1-score y matriz de confusión con sus respectivas interpretaciones.
+
+✏️ Intenten utilizar la función naive_bayes() del paquete naivebayes para volver a ajustar su clasificador, ¿existe alguna diferencia?
+
+✏️ La clasificación multiclase impone un mayor desafío, para facilitar las cosas dicotomizaremos el tipo de evento paranormal. Con ayuda de la función case_when() pueden recodificar el tipo de evento paranormal, por ejemplo, si es Haunted Places u Other.
+
+✏️ Vuelvan a entrenar un clasificador naïve Bayes con ambas funciones, ¿hubo alguna mejora?
+
+✏️ Un problema que enfrentan estas primeras implementaciones del clasificador naïve Bayes es el supuesto de la distribución normal para los nodos hijo. Este supuesto parece poco pertinente en este caso debido a que lo que contiene nuestra matriz de datos son en realidad conteos. La distribución Poisson resulta una mejor alternativa para este tipo de datos. Pueden utilizar esta distribución en la función naive_bayes() del paquete naivebayes mediante el argumento usepoisson = TRUE.
+
+✏️ Otro problema que enfrentamos en este tipo de datos es que existen muchos ceros en la matriz de datos. Una posible solución es utilizar una técnica de suavizamiento conocida como Laplace smoothing. Investiguen sobre esta técnica e impleméntenla en su clasificador.
+
+✏️ Como se habrán dado cuenta, puede ser arbitraria la selección de este parámetro, intenten realizar cross-validation para seleccionar el valor óptimo.
