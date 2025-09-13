@@ -1,0 +1,111 @@
+---
+title: "webscrapping"
+format: html
+editor: visual
+---
+
+## 
+```{r}
+library(robotstxt)
+library(tidyverse)
+library(rvest)
+library(future)
+library(readr)
+library(furrr)
+library(httr)
+library(janitor)
+```
+
+
+✏️ Utilicen la función paths_allowed() del paquete robotstxt para comprobar que el web scraping está permitido en esta página.
+```{r}
+paths_allowed("https://www.yourghoststories.com/")
+```
+```{r}
+#debugeo
+i <- 28577
+url <- paste0("https://www.yourghoststories.com/real-ghost-story.php?story=",i)
+page <- tryCatch(read_html(url), error = function(e) return(NULL))
+  if (is.null(page)) {
+    return(tibble(ID = i, Title = NA, Place = NA, Category = NA, Description = NA))
+  }
+
+storyinfo <- page %>%
+  html_nodes(".storyinfo a") %>%
+  html_text()
+storyinfo
+```
+
+
+✏️ Realicen un web scraping de diferentes eventos paranormales reportados en Your Ghost Stories (mientras más, mejor), incluso pueden capturar sus propias experiencias sobrenaturales. El conjunto de datos final debe contener al menos el título del relato, el lugar, el tipo de evento paranormal y la descripción de la historia. Para esto, se pueden basar en el siguiente material.
+
+```{r}
+story_scraper <- function(i){
+  url <- paste0("https://www.yourghoststories.com/real-ghost-story.php?story=",i)
+  res <- tryCatch(GET(url), error = function(e) return(NULL))
+  if (is.null(res) || res$status_code != 200) {
+    return(tibble(ID = i, Title = NA, Place = NA, Category = NA, Description = NA))
+  }
+  
+  page <- read_html(res$content)
+  on.exit(closeAllConnections(), add = TRUE)
+  
+  title <- page %>%
+    html_nodes(".storytitle") %>%
+    html_text()
+  message("Scraping: ", title)
+  storyinfo <- page %>%
+    html_nodes(".storyinfo a") %>%
+    html_text()
+  if (length(storyinfo) > 5) { #para historiasa de US ya que tiene diferente rango
+    place <- storyinfo[4]
+    category <- storyinfo[6]
+  } else {
+    place <- storyinfo[4]
+    category <- storyinfo[5]
+  }
+  #print(place)
+  #print(category)
+  description <- page %>%
+    html_nodes("#story") %>%
+    html_text()
+  #print(description)
+  tibble(
+    ID = i,
+    Title = title,
+    Place = place,
+    Category = category,
+    Description = description
+  )
+
+}
+
+```
+
+```{r}
+plan(multisession, workers = 14)
+
+story_ids <- (28577 - 2501):28577
+
+chunks <- split(story_ids, ceiling(seq_along(story_ids)/500)) # 500 at a time
+
+stories <- map_dfr(chunks, function(chunk) {
+  map_dfr(chunk, function(id) {
+    if (id %% 10 == 0) Sys.sleep(0.5)
+    story_scraper(id)
+  }, .progress = TRUE)
+})
+
+stories
+```
+```{r}
+stories_clean <- na.omit(stories)
+```
+
+
+```{r}
+
+write_csv(stories_clean, "data/stories.csv")
+```
+
+
