@@ -8,28 +8,97 @@ authors:
 format: html
 editor: visual
 ---
+
 ```{r}
 #Setup global cargando librerias y nuestra base de datos
+install.packages("tidytext")
 library(tidyverse)
 library(tidymodels)
+library(tidytext)
+library(stringr)
+library(ggplot2)
+library(tidyr)
+library(Matrix)
 
 data <- read_csv("data/stories.csv")
 head(data)
 ```
 
-
 ✏️ Realicen un pequeño análisis de texto utilizando la base de datos que scrapearon. La actividad de Mine sobre text mining les puede dar ideas y el código necesario para realizar este análisis.
 
 ```{r}
+data_clean <- data %>%
+  mutate(Description = str_to_lower(Description)) %>%
+  mutate(Description = str_replace_all(Description, "[[:punct:]]", " ")) %>%
+  mutate(Description = str_squish(Description))
+```
 
+### **Tokenización y remoción de stopwords**
+
+```{r}
+tokens <- data_clean %>%
+  unnest_tokens(word, Description) %>%
+  anti_join(stop_words, by = "word")
+```
+
+### **Frecuencia de palabras**
+
+```{r}
+top_words <- tokens %>%
+  count(word, sort = TRUE) %>%
+  slice_max(n, n = 20)
+
+top_words
+```
+
+### **Visualización**
+
+```{r}
+top_words %>%
+  ggplot(aes(x = reorder(word, n), y = n)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Top 20 palabras en relatos",
+       x = "Palabra", y = "Frecuencia") +
+  theme_minimal()
 ```
 
 ✏️ Construyan una sparse matrix que incluya la frecuencia de cada palabra en los relatos scrapeados, donde cada renglón representa un relato diferente y donde las columnas son las diferentes palabras. Esta matriz también debe contener el tipo de evento paranormal. La función unnest_tokens() les puede ayudar. Consideren eliminar las palabras comunes en inglés a través de las stop words. Todo este proceso se conoce como un count vectorizer, que significa transformar texto a vectores.
 
 ```{r}
+dtm_long <- tokens %>%
+  count(ID, word, name = "freq")
+
+dtm_wide <- dtm_long %>%
+  pivot_wider(
+    names_from = word,
+    values_from = freq,
+    values_fill = 0
+  ) %>%
+  left_join(data %>% select(ID, Category) %>% distinct(), by = "ID")
 
 ```
 
+```{r}
+# Matriz dispersa y vector de etiquetas
+X_sparse <- dtm_long %>%
+  cast_sparse(row = ID, column = word, value = freq)
+
+id_order <- as.integer(rownames(X_sparse))
+y <- data %>%
+  distinct(ID, Category) %>%
+  arrange(match(ID, id_order)) %>%
+  pull(Category)
+```
+
+```{r}
+dim(dtm_wide)       # filas = relatos, columnas = palabras + Category
+head(dtm_wide[, 1:10])  # primeras columnas para ver conteos
+
+X_sparse            # resumen de la matriz dispersa
+length(y)           # debe coincidir con nrow(X_sparse)
+head(y)             # primeras etiquetas
+```
 
 ✏️ Dividan la matriz de datos en training y test set. Y utilicen el training set para entrenar un clasificador naïve Bayes para predecir el tipo de evento paranormal.
 
