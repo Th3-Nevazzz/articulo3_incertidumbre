@@ -100,7 +100,68 @@ length(y)           # debe coincidir con nrow(X_sparse)
 head(y)             # primeras etiquetas
 ```
 
+```{r}
+y_multilabel <- data_clean %>%
+  distinct(ID, Category) %>%
+  mutate(Category = str_split(Category, " / ")) %>%
+  unnest(Category) %>%
+  mutate(Category = str_trim(Category))
+```
+
+```{r}
+y_matrix <- y_multilabel %>%
+  mutate(value = 1) %>%
+  pivot_wider(
+    id_cols = ID,
+    names_from = Category,
+    values_from = value,
+    values_fill = 0
+  )
+
+# Asegurar el mismo orden de IDs que en X_sparse
+id_order <- as.integer(rownames(X_sparse))
+y_matrix <- y_matrix %>%
+  arrange(match(ID, id_order)) %>%
+  select(-ID)
+
+y_matrix <- as.matrix(y_matrix)
+```
+
+```{r}
+dim(y_matrix)
+```
+
+```{r}
+nrow(X_sparse)
+```
+
+```{r}
+Y_sparse <- Matrix(y_matrix, sparse = TRUE)
+
+# Unir matrices por columnas
+X_full <- cbind(X_sparse, Y_sparse)
+
+# Revisión
+dim(X_full)
+```
+
 ✏️ Dividan la matriz de datos en training y test set. Y utilicen el training set para entrenar un clasificador naïve Bayes para predecir el tipo de evento paranormal.
+
+```{r}
+set.seed(1234)
+#dado que no se puede hacer con la funcion "initial_split" lo hacemos a mano xd
+
+n_rows <- nrow(X_full)
+idx <- sample(seq_len(n_rows), size = 0.7 * n_rows)
+
+train_set <- X_full[idx, ]
+test_set <- X_full[-idx, ]
+```
+
+```{r}
+
+```
+
 
 ✏️ Reporten la accuracy, precision, recall, F1-score y matriz de confusión con sus respectivas interpretaciones.
 
