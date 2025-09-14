@@ -19,6 +19,7 @@ library(stringr)
 library(ggplot2)
 library(tidyr)
 library(Matrix)
+library(e1071)
 
 data <- read_csv("data/stories.csv")
 head(data)
@@ -100,15 +101,129 @@ length(y)           # debe coincidir con nrow(X_sparse)
 head(y)             # primeras etiquetas
 ```
 
+```{r}
+# asegurarse de tener X_sparse ya creado y data disponible
+# recuperar el orden de IDs que usa la matriz dispersa
+id_order <- as.integer(rownames(X_sparse))
+
+# crear un data.frame con la etiqueta original y ordenarlo para que
+# coincida con las filas de X_sparse
+label_df <- data %>%
+  distinct(ID, Category) %>%
+  mutate(Category = str_squish(Category)) %>%
+  arrange(match(ID, id_order))
+
+# crear etiqueta binaria (case_when). Cambia el patrón si quieres otro criterio.
+label_df <- label_df %>%
+  mutate(Category_bin = case_when(
+    str_detect(Category, regex("Haunted Places", ignore_case = TRUE)) ~ "Haunted",
+    TRUE ~ "Other"
+  ))
+
+# vector factor alineado con filas de X_sparse
+y_binary <- factor(label_df$Category_bin, levels = c("Haunted", "Other"))
+
+# comprobación rápida
+stopifnot(length(y_binary) == nrow(X_sparse))
+table(y_binary)   # ver distribución de clases
+```
+
+```{r}
+# frecuencia por término (número de documentos donde aparece)
+term_df <- colSums(X_sparse > 0)
+min_df <- 5        # ajustar según memoria/velocidad
+keep_terms <- which(term_df >= min_df)
+
+X_sparse_reduced <- X_sparse[, keep_terms]
+dim(X_sparse_reduced)
+```
+
 ✏️ Dividan la matriz de datos en training y test set. Y utilicen el training set para entrenar un clasificador naïve Bayes para predecir el tipo de evento paranormal.
 
-✏️ Reporten la accuracy, precision, recall, F1-score y matriz de confusión con sus respectivas interpretaciones.
+```{r}
+set.seed(1234)
+n <- nrow(X_sparse_reduced)   # o X_sparse si no redujiste
+idx <- sample(seq_len(n), size = floor(0.7 * n))
 
-✏️ Intenten utilizar la función naive_bayes() del paquete naivebayes para volver a ajustar su clasificador, ¿existe alguna diferencia?
+X_train <- X_sparse_reduced[idx, ]
+X_test  <- X_sparse_reduced[-idx, ]
 
-✏️ La clasificación multiclase impone un mayor desafío, para facilitar las cosas dicotomizaremos el tipo de evento paranormal. Con ayuda de la función case_when() pueden recodificar el tipo de evento paranormal, por ejemplo, si es Haunted Places u Other.
+y_train <- y_binary[idx]
+y_test  <- y_binary[-idx]
+```
+
+✏️ La clasificación multiclase impone un mayor desafío, para facilitar las cosas dicotomizaremos el tipo de evento paranormal. Con ayuda de la función case_when() pueden recodificar el tipo de evento paranormal, por ejemplo, si es Haunted Places u Other. ✏️ Intenten utilizar la función naive_bayes() del paquete naivebayes para volver a ajustar su clasificador, ¿existe alguna diferencia?
+
+### Modelo 1: libreria e1071
+
+```{r}
+NB_e1071 <- naiveBayes(x = as.matrix(X_train), y = y_train)
+
+# predecir
+pred_e1071 <- predict(NB_e1071, as.matrix(X_test))
+```
+
+```{r}
+conf_mat <- table(Actual = y_test, Predicted = pred_e1071)
+conf_mat
+
+TP <- sum(y_test == "Haunted" & pred_e1071 == "Haunted")
+TN <- sum(y_test == "Other"   & pred_e1071 == "Other")
+FP <- sum(y_test == "Other"   & pred_e1071 == "Haunted")
+FN <- sum(y_test == "Haunted" & pred_e1071 == "Other")
+
+accuracy  <- (TP + TN) / (TP + TN + FP + FN)
+precision <- ifelse((TP + FP) > 0, TP / (TP + FP), 0)
+recall    <- ifelse((TP + FN) > 0, TP / (TP + FN), 0)
+f1        <- ifelse((precision + recall) > 0, 2 * precision * recall / (precision + recall), 0)
+
+metrics_df <- tibble(
+  Metric = c("Accuracy", "Precision (Haunted)", "Recall (Haunted)", "F1 (Haunted)"),
+  Value  = c(accuracy, precision, recall, f1)
+)
+metrics_df
+```
+
 
 ✏️ Vuelvan a entrenar un clasificador naïve Bayes con ambas funciones, ¿hubo alguna mejora?
+
+```{r}
+library(naivebayes)
+```
+
+
+###Modelo 2: libreria naivebayes
+
+```{r}
+
+NB_nb <- naive_bayes(x = as.matrix(X_train), y = y_train)
+pred_nb <- predict(NB_nb, as.matrix(X_test))
+```
+
+```{r}
+# métricas para naivebayes
+conf_mat <- table(Actual = y_test, Predicted = pred_nb)
+conf_mat
+
+TP2 <- sum(y_test == "Haunted" & pred_nb == "Haunted")
+TN2 <- sum(y_test == "Other"   & pred_nb == "Other")
+FP2 <- sum(y_test == "Other"   & pred_nb == "Haunted")
+FN2 <- sum(y_test == "Haunted" & pred_nb == "Other")
+
+accuracy2  <- (TP2 + TN2) / (TP2 + TN2 + FP2 + FN2)
+precision2 <- ifelse((TP2 + FP2) > 0, TP2 / (TP2 + FP2), 0)
+recall2    <- ifelse((TP2 + FN2) > 0, TP2 / (TP2 + FN2), 0)
+f12        <- ifelse((precision2 + recall2) > 0, 2 * precision2 * recall2 / (precision2 + recall2), 0)
+
+comparison <- tibble(
+  Model = c("e1071::naiveBayes", "naivebayes::naive_bayes"),
+  Accuracy = c(accuracy, accuracy2),
+  Precision = c(precision, precision2),
+  Recall = c(recall, recall2),
+  F1 = c(f1, f12)
+)
+comparison
+```
 
 ✏️ Un problema que enfrentan estas primeras implementaciones del clasificador naïve Bayes es el supuesto de la distribución normal para los nodos hijo. Este supuesto parece poco pertinente en este caso debido a que lo que contiene nuestra matriz de datos son en realidad conteos. La distribución Poisson resulta una mejor alternativa para este tipo de datos. Pueden utilizar esta distribución en la función naive_bayes() del paquete naivebayes mediante el argumento usepoisson = TRUE.
 
