@@ -11,6 +11,7 @@ editor: visual
 
 ```{r}
 #Setup global cargando librerias y nuestra base de datos
+set.seed(1234)
 install.packages("tidytext")
 library(tidyverse)
 library(tidymodels)
@@ -184,13 +185,11 @@ metrics_df <- tibble(
 metrics_df
 ```
 
-
 ✏️ Vuelvan a entrenar un clasificador naïve Bayes con ambas funciones, ¿hubo alguna mejora?
 
 ```{r}
 library(naivebayes)
 ```
-
 
 ###Modelo 2: libreria naivebayes
 
@@ -226,7 +225,176 @@ comparison
 ```
 
 ✏️ Un problema que enfrentan estas primeras implementaciones del clasificador naïve Bayes es el supuesto de la distribución normal para los nodos hijo. Este supuesto parece poco pertinente en este caso debido a que lo que contiene nuestra matriz de datos son en realidad conteos. La distribución Poisson resulta una mejor alternativa para este tipo de datos. Pueden utilizar esta distribución en la función naive_bayes() del paquete naivebayes mediante el argumento usepoisson = TRUE.
+### Usando la libreria naivebayes vamos a usar una distribución Poisson 
+Primero convertimos las matrices a df para que todas las columnas sean int
 
-✏️ Otro problema que enfrentamos en este tipo de datos es que existen muchos ceros en la matriz de datos. Una posible solución es utilizar una técnica de suavizamiento conocida como Laplace smoothing. Investiguen sobre esta técnica e impleméntenla en su clasificador.
+```{r}
+# Convertir sparse a dense
+X_train_dense <- as.matrix(X_train)
+X_test_dense  <- as.matrix(X_test)
 
-✏️ Como se habrán dado cuenta, puede ser arbitraria la selección de este parámetro, intenten realizar cross-validation para seleccionar el valor óptimo.
+# Convertir a data.frame de enteros
+X_train_df <- as.data.frame(apply(X_train_dense, 2, as.integer))
+X_test_df  <- as.data.frame(apply(X_test_dense, 2, as.integer))
+
+```
+
+Entrenamos el modelo con poisson
+```{r}
+# Entrenar NB Poisson 
+NB_poisson <- naive_bayes(
+  x = X_train_df,
+  y = y_train,
+  usepoisson = TRUE
+)
+
+pred_poisson <- predict(NB_poisson, X_test_df)
+```
+
+```{r}
+# métricas para poisson
+conf_mat3 <- table(Actual = y_test, Predicted = pred_poisson)
+conf_mat3
+
+TP3 <- sum(y_test == "Haunted" & pred_poisson == "Haunted")
+TN3 <- sum(y_test == "Other"   & pred_poisson == "Other")
+FP3 <- sum(y_test == "Other"   & pred_poisson == "Haunted")
+FN3 <- sum(y_test == "Haunted" & pred_poisson == "Other")
+
+accuracy3  <- (TP3 + TN3) / (TP3 + TN3 + FP3 + FN3)
+precision3 <- ifelse((TP3 + FP3) > 0, TP3 / (TP3 + FP3), 0)
+recall3    <- ifelse((TP3 + FN3) > 0, TP3 / (TP3 + FN3), 0)
+f13        <- ifelse((precision3 + recall3) > 0, 2 * precision3 * recall3 / (precision3 + recall3), 0)
+
+comparison <- tibble(
+  Model = c("e1071::naiveBayes", "naivebayes::naive_bayes", "naivebayes::Poisson"),
+  Accuracy = c(accuracy, accuracy2, accuracy3),
+  Precision = c(precision, precision2, precision3),
+  Recall = c(recall, recall2, recall3),
+  F1 = c(f1, f12, f13)
+)
+comparison
+```
+
+Podmos ver que con Poisson mejor el modelo, sin embargo nos da muchos warnings por los datos en 0
+
+
+### Usando suavizamiento de Laplace
+
+```{r}
+# Entrenar NB Poisson con Laplace
+NB_poisson_l <- naive_bayes(x = X_train_df, y = y_train, usepoisson = TRUE, laplace = 1.5)
+pred_poisson_l <- predict(NB_poisson_l, X_test_df)
+```
+
+```{r}
+# métricas para poisson
+conf_mat4 <- table(Actual = y_test, Predicted = pred_poisson_l)
+conf_mat4
+
+TP4 <- sum(y_test == "Haunted" & pred_poisson_l == "Haunted")
+TN4 <- sum(y_test == "Other"   & pred_poisson_l == "Other")
+FP4 <- sum(y_test == "Other"   & pred_poisson_l == "Haunted")
+FN4 <- sum(y_test == "Haunted" & pred_poisson_l == "Other")
+
+accuracy4  <- (TP4 + TN4) / (TP4 + TN4 + FP4 + FN4)
+precision4 <- ifelse((TP4 + FP4) > 0, TP4 / (TP4 + FP4), 0)
+recall4    <- ifelse((TP4 + FN4) > 0, TP4 / (TP4 + FN4), 0)
+f14        <- ifelse((precision4 + recall4) > 0, 2 * precision4 * recall4 / (precision4 + recall4), 0)
+
+comparison <- tibble(
+  Model = c("e1071::naiveBayes", "naivebayes::naive_bayes", "naivebayes::Poisson", "naivebayes::Poisson_Laplace"),
+  Accuracy = c(accuracy, accuracy2, accuracy3, accuracy4),
+  Precision = c(precision, precision2, precision3, precision4),
+  Recall = c(recall, recall2, recall3, recall4),
+  F1 = c(f1, f12, f13, f14)
+)
+comparison
+```
+Vemos que con el suavizado de laplace ya no tenemos los warnings, pero empeoro un poco nuestro modelo, podemos usar cross validation para encontrar el mejor lambda para nuestro modelo con Poisson y Laplace
+
+### Cross validation para encontrar el mejor valor de lambda
+
+
+```{r}
+#Instalamos y llamamos librerias necesarias
+#install.packages("caret")
+#install.packages("purr")
+library(naivebayes)
+library(caret)
+library(dplyr)
+library(purrr)
+```
+
+```{r}
+# Definir los valores de lambda a probar
+laplace_vals <- seq(0.1, 2, by = 0.1)
+
+# Folds 10
+folds <- createFolds(y_train, k = 2, list = TRUE)
+
+# Función para entrenar y evaluar NB Poisson con un laplace dado
+cv_nb_poisson <- function(lambda) {
+  acc_folds <- map_dbl(folds, function(idx) {
+    X_val <- X_train_df[idx, ]
+    y_val <- y_train[idx]
+    X_tr  <- X_train_df[-idx, ]
+    y_tr  <- y_train[-idx]
+    
+    model <- naive_bayes(x = X_tr, y = y_tr, usepoisson = TRUE, laplace = lambda)
+    pred  <- predict(model, X_val)
+    
+    mean(pred == y_val)  # Accuracy en este fold
+  })
+  
+  mean(acc_folds)  # Accuracy promedio de los 10 folds
+}
+
+# Evaluar todos los valores de laplace
+cv_results <- map_dbl(laplace_vals, cv_nb_poisson)
+
+# Mejor lambda
+best_lambda <- laplace_vals[which.max(cv_results)]
+best_lambda
+cv_results_df <- tibble(
+  Laplace = laplace_vals,
+  Accuracy = cv_results
+)
+cv_results_df
+
+```
+
+
+```{r}
+# Entrenar NB Poisson con Laplace
+NB_poisson_l <- naive_bayes(x = X_train_df, y = y_train, usepoisson = TRUE, laplace = 0.2)
+pred_poisson_l <- predict(NB_poisson_l, X_test_df)
+# métricas para poisson
+conf_mat4 <- table(Actual = y_test, Predicted = pred_poisson_l)
+conf_mat4
+
+TP4 <- sum(y_test == "Haunted" & pred_poisson_l == "Haunted")
+TN4 <- sum(y_test == "Other"   & pred_poisson_l == "Other")
+FP4 <- sum(y_test == "Other"   & pred_poisson_l == "Haunted")
+FN4 <- sum(y_test == "Haunted" & pred_poisson_l == "Other")
+
+accuracy4  <- (TP4 + TN4) / (TP4 + TN4 + FP4 + FN4)
+precision4 <- ifelse((TP4 + FP4) > 0, TP4 / (TP4 + FP4), 0)
+recall4    <- ifelse((TP4 + FN4) > 0, TP4 / (TP4 + FN4), 0)
+f14        <- ifelse((precision4 + recall4) > 0, 2 * precision4 * recall4 / (precision4 + recall4), 0)
+
+comparison <- tibble(
+  Model = c("e1071::naiveBayes", "naivebayes::naive_bayes", "naivebayes::Poisson", "naivebayes::Poisson_Laplace"),
+  Accuracy = c(accuracy, accuracy2, accuracy3, accuracy4),
+  Precision = c(precision, precision2, precision3, precision4),
+  Recall = c(recall, recall2, recall3, recall4),
+  F1 = c(f1, f12, f13, f14)
+)
+comparison
+```
+
+Podemos ver que haciendo cross validation con un k=2, nos dice que el mejor lambda es 0.2.
+Viendo este resultado nos damos cuenta que no tiene la misma accuracy de poisson sin suvizamiento de Laplace,
+pero si esta lo suficientemente cerca para poder decir que es mejor al quitar los errores de los valores en 0
+
+ 
